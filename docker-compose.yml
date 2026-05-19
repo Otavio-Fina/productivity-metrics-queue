@@ -1,0 +1,28 @@
+
+services:
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal dynamodb describe-table --table-name developer_summary >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+
+  processor:
+    build: ./services/processor # needs services/processor/Dockerfile (Phase 3)
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  aggregator:
+    build: ./services/aggregator # needs services/aggregator/Dockerfile (Phase 4)
+    depends_on:
+      localstack:
+        condition: service_healthy
+    ports:
+      - "8080:8080" 

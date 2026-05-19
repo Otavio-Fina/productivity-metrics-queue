@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build ./...)",
+      "Bash(go test ./...)",
+      "Bash(go mod tidy)",
+      "Bash(go vet ./...)",
+      "Bash(docker-compose *)",
+      "Bash(docker build *)",
+      "Bash(aws --endpoint-url=http://localhost:4566 *)",
+      "Bash(make *)"
+    ]
+  }
+}
