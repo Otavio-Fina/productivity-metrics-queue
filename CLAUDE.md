@@ -128,7 +128,7 @@ Summary response — `GET /metrics/:developer_id/summary`:
 
 ## Clean Architecture rule
 
-- `domain/` — stdlib only, no external imports (entities, value objects, rules).
+- `domain/` — entities, value objects, rules. Pure logic; no SQS/HTTP/DB types here.
 - `usecase/` — imports `domain/` and interfaces only; never imports `infra/`.
 - `infra/` — implements those interfaces; AWS SDK and HTTP libraries live here only.
 
