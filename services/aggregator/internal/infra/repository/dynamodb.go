@@ -133,31 +133,51 @@ func isConditionalCheckFailed(err error) bool {
 	return false
 }
 
-// GetEventsByDeveloper faz Query no GSI por developer_id. Retorna slice
-// vazio (não erro) quando o dev não tem eventos.
-func (r *DynamoRepo) GetEventsByDeveloper(ctx context.Context, developerID string) ([]domain.ProcessedEvent, error) {
-	//TODO: paginar se tiver muitos eventos — por ora assumimos poucos por dev, mas pode ser necessário no futuro.
-	out, err := r.client.Query(ctx, &dynamodb.QueryInput{
+// GetEventsByDeveloper faz Query paginada no GSI por developer_id.
+// Retorna domain.EventsPage com slice vazio (não erro) quando o dev não tem
+// eventos, e NextCursor vazio na última página.
+//
+// O cursor é o event_id do último item da página anterior — DynamoDB precisa
+// dele junto do developer_id pra remontar o ExclusiveStartKey (a GSI tem só
+// developer_id como hash, mas o LastEvaluatedKey carrega também o PK da
+// tabela base, que é event_id).
+func (r *DynamoRepo) GetEventsByDeveloper(ctx context.Context, developerID string, limit int, cursor string) (domain.EventsPage, error) {
+	input := &dynamodb.QueryInput{
 		TableName:              aws.String(r.eventsTable),
 		IndexName:              aws.String(r.developerIDGSI),
 		KeyConditionExpression: aws.String("developer_id = :d"),
 		ExpressionAttributeValues: map[string]dtypes.AttributeValue{
 			":d": &dtypes.AttributeValueMemberS{Value: developerID},
 		},
-	})
+		Limit: aws.Int32(int32(limit)),
+	}
+	if cursor != "" {
+		input.ExclusiveStartKey = map[string]dtypes.AttributeValue{
+			"event_id":     &dtypes.AttributeValueMemberS{Value: cursor},
+			"developer_id": &dtypes.AttributeValueMemberS{Value: developerID},
+		}
+	}
+
+	out, err := r.client.Query(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("query events by developer: %w", err)
+		return domain.EventsPage{}, fmt.Errorf("query events by developer: %w", err)
 	}
 
 	events := make([]domain.ProcessedEvent, 0, len(out.Items))
 	for _, item := range out.Items {
 		var e domain.ProcessedEvent
 		if err := attributevalue.UnmarshalMap(item, &e); err != nil {
-			return nil, fmt.Errorf("unmarshal event: %w", err)
+			return domain.EventsPage{}, fmt.Errorf("unmarshal event: %w", err)
 		}
 		events = append(events, e)
 	}
-	return events, nil
+
+	var next string
+	if v, ok := out.LastEvaluatedKey["event_id"].(*dtypes.AttributeValueMemberS); ok {
+		next = v.Value
+	}
+
+	return domain.EventsPage{Events: events, NextCursor: next}, nil
 }
 
 // GetSummary retorna o agregado do dev. found=false quando não há registro.

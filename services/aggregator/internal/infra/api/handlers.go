@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,7 @@ import (
 // Queries é o que o handler precisa do mundo do use case. Interface fina
 // pra manter o handler desacoplado do struct concreto QueryUs.
 type Queries interface {
-	GetEvents(ctx context.Context, developerID string) ([]domain.ProcessedEvent, error)
+	GetEvents(ctx context.Context, developerID string, limit int, cursor string) (domain.EventsPage, error)
 	GetSummary(ctx context.Context, developerID string) (domain.SummaryRecord, bool, error)
 }
 
@@ -44,6 +45,14 @@ type summaryResponse struct {
 	LastActivity         time.Time `json:"last_activity"`
 }
 
+// eventsResponse encapsula a página de eventos com o cursor pra próxima
+// página. next_cursor é omitido quando não há mais dados — o cliente trata
+// isso como "fim da listagem".
+type eventsResponse struct {
+	Items      []domain.ProcessedEvent `json:"items"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
 func (h *Handlers) GetEvents(c *gin.Context) {
 	developerID := c.Param("developer_id")
 	if developerID == "" {
@@ -51,14 +60,21 @@ func (h *Handlers) GetEvents(c *gin.Context) {
 		return
 	}
 
-	events, err := h.queries.GetEvents(c.Request.Context(), developerID)
+	// limit inválido (não-numérico ou ausente) vira 0 e é clampado no use case.
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	cursor := c.Query("cursor")
+
+	page, err := h.queries.GetEvents(c.Request.Context(), developerID, limit, cursor)
 	if err != nil {
 		slog.ErrorContext(c.Request.Context(), "get events failed",
 			"error", err, "developer_id", developerID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
-	c.JSON(http.StatusOK, events)
+	c.JSON(http.StatusOK, eventsResponse{
+		Items:      page.Events,
+		NextCursor: page.NextCursor,
+	})
 }
 
 func (h *Handlers) GetSummary(c *gin.Context) {

@@ -11,6 +11,11 @@
 
 set -euo pipefail
 
+# Workaround: AWS CLI v2 on Windows + git-bash sometimes can't resolve the home
+# directory because USERPROFILE isn't propagated to the subprocess, crashing in
+# pathlib.Path.home(). On Mac/Linux USERPROFILE is unused, so this is a no-op.
+export USERPROFILE="${USERPROFILE:-$HOME}"
+
 ENDPOINT="http://localhost:4566"
 RAW_QUEUE="$ENDPOINT/000000000000/raw-events"
 

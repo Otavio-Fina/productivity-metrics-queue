@@ -7,11 +7,11 @@
 
   aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name raw-events-dlq
   aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name raw-events \
-    --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:raw-events-dlq\",\"maxReceiveCount\":\"3\"}"}'
+    --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:raw-events-dlq\",\"maxReceiveCount\":3}"}'
 
   aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name processed-events-dlq
   aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name processed-events \
-    --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:processed-events-dlq\",\"maxReceiveCount\":\"3\"}"}'
+    --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:processed-events-dlq\",\"maxReceiveCount\":3}"}'
 
   aws --endpoint-url=http://localhost:4566 dynamodb create-table \
     --table-name events \
