@@ -7,15 +7,18 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/api"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/config"
+	otelinit "github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/otel"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/queue"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/repository"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/worker"
@@ -37,6 +40,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// OTel tracer global. Endpoint vazio = no-op (dev/tests sem Jaeger).
+	// Shutdown com timeout próprio garante flush dos spans batched antes
+	// do processo morrer — sem isso perderíamos os últimos N spans.
+	shutdownOtel, err := otelinit.Init(ctx)
+	if err != nil {
+		slog.Error("otel init failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		sCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownOtel(sCtx)
+	}()
+
 	// NopRetryer desliga o retry do SDK. Aqui o motivo é diferente do
 	// Processor (que tinha publisher com backoff): no Aggregator queremos
 	// que erros transientes virem rápido em "não-ack" → SQS reentrega.
@@ -49,6 +66,11 @@ func main() {
 		slog.Error("aws config load failed", "error", err)
 		os.Exit(1)
 	}
+
+	// otelaws instrumenta TODAS as chamadas AWS subsequentes: cada
+	// ReceiveMessage / DeleteMessage (SQS) e GetItem / TransactWriteItems
+	// / Query (DynamoDB) vira span automático.
+	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
 
 	sqsClient := sqs.NewFromConfig(awsCfg, func(o *sqs.Options) {
 		if appCfg.AWSEndpoint != "" {

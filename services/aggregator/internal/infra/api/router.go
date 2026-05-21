@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // NewRouter monta o engine do Gin com middleware de recovery e log
@@ -19,7 +20,10 @@ import (
 func NewRouter(h *Handlers) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(slogMiddleware(), gin.Recovery())
+	// otelgin antes do slogMiddleware: assim o context que o slog vê já
+	// carrega o span ativo, e o `traceparent` recebido em headers é
+	// extraído automaticamente (pronto pra propagação client→server).
+	r.Use(otelgin.Middleware("aggregator"), slogMiddleware(), gin.Recovery())
 
 	r.GET("/metrics/:developer_id", h.GetEvents)
 	r.GET("/metrics/:developer_id/summary", h.GetSummary)

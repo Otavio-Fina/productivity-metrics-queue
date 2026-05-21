@@ -6,12 +6,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/infra/config"
+	otelinit "github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/infra/otel"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/infra/queue"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/infra/worker"
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/usecase"
@@ -37,6 +40,21 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// OTel tracer global. Se OTEL_EXPORTER_OTLP_ENDPOINT estiver vazio,
+	// vira no-op (graceful degrade para dev/tests sem Jaeger).
+	// Shutdown com timeout próprio faz flush dos spans batched antes do
+	// processo morrer — sem isso perderíamos os últimos N spans.
+	shutdownOtel, err := otelinit.Init(ctx)
+	if err != nil {
+		slog.Error("otel init failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		sCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownOtel(sCtx)
+	}()
+
 	// AWS config. Desligamos o retryer do SDK (NopRetryer = max 1 tentativa,
 	// sem delay) porque o nosso publisher já tem backoff próprio. Ter dois
 	// mecanismos de retry sobrepostos confunde métricas e estoura latência.
@@ -48,6 +66,12 @@ func main() {
 		slog.Error("aws config load failed", "error", err)
 		os.Exit(1)
 	}
+
+	// otelaws instrumenta TODAS as chamadas AWS subsequentes: cada
+	// SendMessage / ReceiveMessage / DeleteMessage vira span automático.
+	// Bônus: o middleware já injeta `traceparent` no MessageAttributes
+	// do SendMessage — preparação pra propagação cross-service via SQS.
+	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
 
 	// Cliente SQS. BaseEndpoint só é setado quando AWS_ENDPOINT_URL existe
 	// (cenário LocalStack). Em prod real, deixar vazio = SDK resolve normal.
