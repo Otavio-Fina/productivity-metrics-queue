@@ -57,7 +57,6 @@ func main() {
 	// NopRetryer desliga o retry do SDK. Aqui o motivo é diferente do
 	// Processor (que tinha publisher com backoff): no Aggregator queremos
 	// que erros transientes virem rápido em "não-ack" → SQS reentrega.
-	// Retry no SDK só atrasaria o feedback e mascararia problemas.
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(appCfg.AWSRegion),
 		awsconfig.WithRetryer(func() aws.Retryer { return aws.NopRetryer{} }),
@@ -83,8 +82,6 @@ func main() {
 		}
 	})
 
-	// Composição Clean Architecture: infra → use case → adapters de entrada
-	// (worker e HTTP server).
 	repo := repository.NewDynamoRepo(
 		dynamoClient,
 		appCfg.EventsTableName,
@@ -131,9 +128,6 @@ func main() {
 	slog.Info("aggregator: stopped")
 }
 
-// buildHealthProbe compõe uma probe que verifica conectividade real com
-// SQS (GetQueueAttributes) E DynamoDB (DescribeTable). Closure sobre os
-// clientes concretos — o handler só recebe a função, sem saber detalhes.
 func buildHealthProbe(
 	sqsClient *sqs.Client,
 	queueURL string,

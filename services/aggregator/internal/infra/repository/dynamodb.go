@@ -41,8 +41,7 @@ func NewDynamoRepo(client DynamoAPI, eventsTable, summaryTable, developerIDGSI s
 // SaveEventAndUpdateSummary grava o evento na tabela events e atualiza o
 // agregado em developer_summary em UMA única transação atômica.
 // Idempotência vem da ConditionExpression no Put: se event_id já existe,
-// a transação inteira é cancelada com ConditionalCheckFailed —
-// interpretamos como duplicata (retorna newEvent=false, err=nil).
+// a transação inteira é cancelada com ConditionalCheckFailed.
 func (r *DynamoRepo) SaveEventAndUpdateSummary(ctx context.Context, e domain.ProcessedEvent) (bool, error) {
 	eventItem, err := attributevalue.MarshalMap(e)
 	if err != nil {
@@ -85,10 +84,6 @@ func (r *DynamoRepo) SaveEventAndUpdateSummary(ctx context.Context, e domain.Pro
 	return false, fmt.Errorf("transact write: %w", err)
 }
 
-// buildSummaryUpdate constrói a UpdateExpression conforme o metric_type.
-// Sempre incrementa events_processed e atualiza last_activity (last-write-wins).
-// O switch é a única lógica não-trivial no repository — vale ter teste unitário
-// pra cada caso.
 func buildSummaryUpdate(e domain.ProcessedEvent) (string, map[string]dtypes.AttributeValue, error) {
 	ts, err := e.Timestamp.MarshalText()
 	if err != nil {
@@ -133,14 +128,6 @@ func isConditionalCheckFailed(err error) bool {
 	return false
 }
 
-// GetEventsByDeveloper faz Query paginada no GSI por developer_id.
-// Retorna domain.EventsPage com slice vazio (não erro) quando o dev não tem
-// eventos, e NextCursor vazio na última página.
-//
-// O cursor é o event_id do último item da página anterior — DynamoDB precisa
-// dele junto do developer_id pra remontar o ExclusiveStartKey (a GSI tem só
-// developer_id como hash, mas o LastEvaluatedKey carrega também o PK da
-// tabela base, que é event_id).
 func (r *DynamoRepo) GetEventsByDeveloper(ctx context.Context, developerID string, limit int, cursor string) (domain.EventsPage, error) {
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(r.eventsTable),
@@ -180,7 +167,6 @@ func (r *DynamoRepo) GetEventsByDeveloper(ctx context.Context, developerID strin
 	return domain.EventsPage{Events: events, NextCursor: next}, nil
 }
 
-// GetSummary retorna o agregado do dev. found=false quando não há registro.
 func (r *DynamoRepo) GetSummary(ctx context.Context, developerID string) (domain.SummaryRecord, bool, error) {
 	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.summaryTable),

@@ -9,14 +9,14 @@ import (
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/domain"
 )
 
-// fakePublisher implementa Publisher in-memory pra inspecionar o que o
+// fPublisher implementa Publisher in-memory pra inspecionar o que o
 // use case publicou. err != nil simula falha transiente (rede/SQS).
-type fakePublisher struct {
+type fPublisher struct {
 	published []domain.ProcessedEvent
 	err       error
 }
 
-func (f *fakePublisher) Publish(_ context.Context, e domain.ProcessedEvent) error {
+func (f *fPublisher) Publish(_ context.Context, e domain.ProcessedEvent) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -38,7 +38,7 @@ func validRawEvent() domain.RawEvent {
 // Happy path: evento válido vira ProcessedEvent enriquecido e é publicado
 // exatamente uma vez.
 func TestHandleProcess_ValidEvent_PublishesEnriched(t *testing.T) {
-	pub := &fakePublisher{}
+	pub := &fPublisher{}
 	us := NewProcessorUs(pub, "processor-1")
 
 	before := time.Now().UTC()
@@ -67,7 +67,7 @@ func TestHandleProcess_ValidEvent_PublishesEnriched(t *testing.T) {
 // ValidationFailure. O worker pool decide ack/não-ack inspecionando esse
 // tipo via errors.As — se quebrar, mensagem ruim volta no loop.
 func TestHandleProcess_InvalidEvent_DoesNotPublishAndReturnsValidationFailure(t *testing.T) {
-	pub := &fakePublisher{}
+	pub := &fPublisher{}
 	us := NewProcessorUs(pub, "processor-1")
 
 	raw := validRawEvent()
@@ -90,7 +90,7 @@ func TestHandleProcess_InvalidEvent_DoesNotPublishAndReturnsValidationFailure(t 
 // trata como retry (não-ack) → SQS reentrega após visibility timeout.
 func TestHandleProcess_PublisherError_Propagates(t *testing.T) {
 	wantErr := errors.New("sqs unavailable")
-	pub := &fakePublisher{err: wantErr}
+	pub := &fPublisher{err: wantErr}
 	us := NewProcessorUs(pub, "processor-1")
 
 	err := us.HandleProcess(context.Background(), validRawEvent())

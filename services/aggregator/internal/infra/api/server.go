@@ -11,8 +11,6 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
-// Server wrappea um http.Server com Run(ctx) que orquestra
-// ListenAndServe + Shutdown gracioso quando ctx é cancelado.
 type Server struct {
 	srv *http.Server
 }
@@ -27,8 +25,6 @@ func NewServer(addr string, handler http.Handler) *Server {
 	}
 }
 
-// Run bloqueia até ctx ser cancelado OU ListenAndServe falhar.
-// Em shutdown gracioso, dá Shutdown(timeout) pra drenar requisições em voo.
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {

@@ -16,17 +16,11 @@ type SQSReceiveDeleteAPI interface {
 	DeleteMessage(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
 }
 
-// Job é uma mensagem do raw-events já decodificada, pronta pro use case.
-// Carrega o ReceiptHandle pra que o worker consiga acknowledgar (deletar)
-// depois do processamento bem-sucedido.
 type Job struct {
 	Event         domain.RawEvent
 	ReceiptHandle string
 }
 
-// SQSConsumer encapsula ReceiveMessage + DeleteMessage. Faz long-poll na
-// fila e devolve eventos decodificados; mensagens com JSON malformado são
-// puladas (sem delete → SQS redrive pra DLQ depois de 3 receives).
 type SQSConsumer struct {
 	client   SQSReceiveDeleteAPI
 	queueURL string
@@ -64,9 +58,6 @@ func (c *SQSConsumer) ReceiveBatch(ctx context.Context) ([]Job, error) {
 	return jobs, nil
 }
 
-// Delete acknowledga uma mensagem na fila — chamado pelo worker depois do
-// use case retornar nil (sucesso). Em qualquer outro caminho, não chamar:
-// o SQS reentrega depois do visibility timeout (e eventualmente DLQ).
 func (c *SQSConsumer) Delete(ctx context.Context, receiptHandle string) error {
 	_, err := c.client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		QueueUrl:      aws.String(c.queueURL),

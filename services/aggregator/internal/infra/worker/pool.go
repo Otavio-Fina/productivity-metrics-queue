@@ -11,9 +11,6 @@ import (
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/infra/queue"
 )
 
-// Handler é o que o pool chama pra cada mensagem. Implementado pelo
-// AggregateUs do pacote usecase. Definir como interface aqui mantém o
-// worker desacoplado do use case concreto.
 type Handler interface {
 	HandleAggregate(ctx context.Context, e domain.ProcessedEvent) error
 }
@@ -87,10 +84,6 @@ func (p *Pool) fetchLoop(ctx context.Context, jobs chan<- queue.Job) {
 // (mais simples que o Processor, porque aqui não há validation failures):
 //   - nil   → ack (delete)
 //   - err   → log + NÃO ack → SQS reentrega → DLQ
-//
-// Duplicatas NÃO retornam erro — o use case loga warn e devolve nil, então
-// caem no caminho do ack normal (segurança: ack uma mensagem duplicada
-// não causa nada de mal já que o agregado não foi alterado).
 func (p *Pool) processOne(ctx context.Context, workerID int, job queue.Job) {
 	logger := slog.With(
 		"worker_id", workerID,

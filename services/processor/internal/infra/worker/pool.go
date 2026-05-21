@@ -12,9 +12,6 @@ import (
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/processor/internal/usecase"
 )
 
-// Pool orquestra o processamento concorrente do Processor: compõe consumer
-// SQS, use case e N workers em paralelo. Roda até o ctx ser cancelado;
-// nesse momento drena o trabalho em voo e retorna limpo.
 type Pool struct {
 	consumer    *queue.SQSConsumer
 	usecase     *usecase.ProcessorUs
@@ -29,7 +26,7 @@ func NewPool(consumer *queue.SQSConsumer, us *usecase.ProcessorUs, workerCount i
 	}
 }
 
-// Run sobe N workers + 1 fetcher e bloqueia até ctx ser cancelado.
+// Run sobe N workers + 1 fetcher.
 // Quando cancela, fecha o canal de jobs e espera os workers drenarem
 // antes de retornar.
 func (p *Pool) Run(ctx context.Context) {
@@ -51,9 +48,7 @@ func (p *Pool) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-// fetchLoop puxa batches do SQS e empurra jobs no canal. Retorna quando
-// ctx é cancelado. Erros de SQS-level (rede, throttling) são logados e
-// retentados após um sleep curto — não derrubam o serviço.
+// fetcher
 func (p *Pool) fetchLoop(ctx context.Context, jobs chan<- queue.Job) {
 	for {
 		if ctx.Err() != nil {
@@ -84,9 +79,6 @@ func (p *Pool) fetchLoop(ctx context.Context, jobs chan<- queue.Job) {
 	}
 }
 
-// processOne é o trabalho de um worker para uma mensagem: chama o use case,
-// classifica o erro retornado, e decide acknowledgar (Delete) ou deixar
-// o SQS reentregar.
 func (p *Pool) processOne(ctx context.Context, workerID int, job queue.Job) {
 	logger := slog.With(
 		"worker_id", workerID,
@@ -98,8 +90,7 @@ func (p *Pool) processOne(ctx context.Context, workerID int, job queue.Job) {
 
 	if err == nil {
 		if delErr := p.consumer.Delete(ctx, job.ReceiptHandle); delErr != nil {
-			// Ack falhou: a mensagem vai redelivery. Aggregator é idempotente,
-			// então duplicata não conta duas vezes — at-least-once é OK.
+			// Ack falhou: a mensagem vai redelivery. Aggregator é idempotente
 			logger.ErrorContext(ctx, "failed to ack message", "error", delErr)
 		}
 		return
@@ -109,10 +100,8 @@ func (p *Pool) processOne(ctx context.Context, workerID int, job queue.Job) {
 	if errors.As(err, &vf) {
 		logger.WarnContext(ctx, "validation failed",
 			"errors", []domain.ErrorValidation(vf))
-		// Permanente: não deleta. SQS redrive → DLQ após maxReceiveCount.
 		return
 	}
 
 	logger.ErrorContext(ctx, "transient processing error", "error", err)
-	// Transitório: não deleta. SQS reentrega após visibility timeout.
 }

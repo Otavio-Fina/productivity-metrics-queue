@@ -21,12 +21,10 @@ import (
 )
 
 func main() {
-	// slog default = JSON em stdout. Vale para todo slog.X (e para o
-	// slog.With usado pelos workers). Requisito não-funcional do brief:
+	// Requisito não-funcional do brief:
 	// "logs estruturados (JSON), correlacionados por event_id".
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
-	// Config via env vars. Fail-fast: aborta cedo se faltar algo essencial.
 	appCfg, err := config.Load()
 	if err != nil {
 		slog.Error("config load failed", "error", err)
@@ -36,14 +34,14 @@ func main() {
 	// ctx cancela em SIGINT/SIGTERM → gatilho do graceful shutdown.
 	// Pool.Run vê ctx.Done(), para o fetchLoop, fecha o canal de jobs,
 	// drena workers em voo e retorna. O `defer stop()` desfaz o handler
-	// no fim — boa prática mesmo quando o processo está saindo.
+	// no fim, boa prática mesmo quando o processo está saindo.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// OTel tracer global. Se OTEL_EXPORTER_OTLP_ENDPOINT estiver vazio,
 	// vira no-op (graceful degrade para dev/tests sem Jaeger).
 	// Shutdown com timeout próprio faz flush dos spans batched antes do
-	// processo morrer — sem isso perderíamos os últimos N spans.
+	// processo morrer, sem isso perderíamos os últimos N spans.
 	shutdownOtel, err := otelinit.Init(ctx)
 	if err != nil {
 		slog.Error("otel init failed", "error", err)
@@ -73,17 +71,12 @@ func main() {
 	// do SendMessage — preparação pra propagação cross-service via SQS.
 	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
 
-	// Cliente SQS. BaseEndpoint só é setado quando AWS_ENDPOINT_URL existe
-	// (cenário LocalStack). Em prod real, deixar vazio = SDK resolve normal.
 	sqsClient := sqs.NewFromConfig(awsCfg, func(o *sqs.Options) {
 		if appCfg.AWSEndpoint != "" {
 			o.BaseEndpoint = aws.String(appCfg.AWSEndpoint)
 		}
 	})
 
-	// Composição Clean Architecture: infra → usecase → worker.
-	// O use case só conhece a interface Publisher; aqui é onde o
-	// SQSPublisher concreto é plugado.
 	consumer := queue.NewSQSConsumer(sqsClient, appCfg.RawEventsQueueURL)
 	publisher := queue.NewSQSPublisher(sqsClient, appCfg.ProcessedEventsQueueURL)
 	us := usecase.NewProcessorUs(publisher, appCfg.ProcessorID)
@@ -97,9 +90,7 @@ func main() {
 		"aws_endpoint", appCfg.AWSEndpoint,
 	)
 
-	// Bloqueia aqui. Retorna só quando ctx é cancelado E todos os workers
-	// terminaram de drenar o que estava em voo. Ordem importa: se main()
-	// retornasse antes de Run() voltar, perderíamos mensagens.
+	// Bloqueia aqui. O pool roda os workers e o fetcher em goroutines, e responde ao ctx para graceful shutdown.
 	pool.Run(ctx)
 
 	slog.Info("processor: stopped")

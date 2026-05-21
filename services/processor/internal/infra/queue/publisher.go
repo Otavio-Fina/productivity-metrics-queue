@@ -33,14 +33,12 @@ func NewSQSPublisher(client SQSSendMessageAPI, targetQueueURL string) *SQSPublis
 	}
 }
 
-// Publish serializa o evento como JSON e envia pro SQS. Repete até
-// maxAttempts em erros transitórios, dobrando o backoff a cada falha
+// dobra o backoff a cada falha
 // (100ms → 200ms → 400ms → 800ms). Aborta imediatamente se ctx for
 // cancelado (graceful shutdown).
 func (p *SQSPublisher) Publish(ctx context.Context, e domain.ProcessedEvent) error {
 	body, err := json.Marshal(e)
 	if err != nil {
-		// Falha de serialização é permanente, não adianta retryar
 		return fmt.Errorf("marshal processed event: %w", err)
 	}
 

@@ -12,8 +12,6 @@ import (
 	"github.com/Otavio-Fina/productivity-metrics-queue/services/aggregator/internal/domain"
 )
 
-// Queries é o que o handler precisa do mundo do use case. Interface fina
-// pra manter o handler desacoplado do struct concreto QueryUs.
 type Queries interface {
 	GetEvents(ctx context.Context, developerID string, limit int, cursor string) (domain.EventsPage, error)
 	GetSummary(ctx context.Context, developerID string) (domain.SummaryRecord, bool, error)
@@ -32,10 +30,6 @@ func NewHandlers(queries Queries, health HealthProbe) *Handlers {
 	return &Handlers{queries: queries, health: health}
 }
 
-// summaryResponse é o shape EXATO especificado no brief — campos JSON
-// inclusive a ordem. Não reutilizamos domain.SummaryRecord porque ele tem
-// total_review_time_minutes + review_time_events_count (formato persistido,
-// não API).
 type summaryResponse struct {
 	DeveloperID          string    `json:"developer_id"`
 	TotalCommits         int64     `json:"total_commits"`
@@ -45,9 +39,6 @@ type summaryResponse struct {
 	LastActivity         time.Time `json:"last_activity"`
 }
 
-// eventsResponse encapsula a página de eventos com o cursor pra próxima
-// página. next_cursor é omitido quando não há mais dados — o cliente trata
-// isso como "fim da listagem".
 type eventsResponse struct {
 	Items      []domain.ProcessedEvent `json:"items"`
 	NextCursor string                  `json:"next_cursor,omitempty"`

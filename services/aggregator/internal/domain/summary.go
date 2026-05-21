@@ -2,10 +2,6 @@ package domain
 
 import "time"
 
-// SummaryRecord é o agregado por desenvolvedor como persistido no DynamoDB.
-// Guardamos soma + contagem (não a média direta) pra preservar precisão
-// quando novos eventos review_time chegam. A média é calculada na leitura,
-// no handler HTTP.
 type SummaryRecord struct {
 	DeveloperID            string    `json:"developer_id"            dynamodbav:"developer_id"`
 	TotalCommits           int64     `json:"total_commits"           dynamodbav:"total_commits"`
