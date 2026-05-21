@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+*.docker
 
 # Test binary, built with `go test -c`
 *.test
@@ -26,6 +27,9 @@ go.work.sum
 
 # env file
 .env
+
+# Local LocalStack pro overrides (auth token, persistence) — committed compose stays free-tier
+docker-compose.override.yml
 
 # Editor/IDE
 # .idea/
