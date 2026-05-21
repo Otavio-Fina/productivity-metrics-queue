@@ -1,0 +1,301 @@
+openapi: 3.0.3
+
+info:
+  title: Productivity Metrics API
+  version: "1.0.0"
+  description: |
+    API REST do serviço **Aggregator** do pipeline `productivity-metrics-queue`.
+
+    O Aggregator consome eventos processados de uma fila SQS, persiste em
+    DynamoDB e expõe esta API para consulta de eventos e métricas agregadas
+    por desenvolvedor.
+
+    > Para visualizar este arquivo de forma interativa, cole o conteúdo em
+    > <https://editor.swagger.io>.
+
+servers:
+  - url: http://localhost:8080
+    description: Aggregator local (via docker-compose)
+
+tags:
+  - name: Metrics
+    description: Consultas de eventos e métricas por desenvolvedor.
+  - name: Health
+    description: Verificação de conectividade com SQS e DynamoDB.
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: |
+        Verifica conectividade do serviço com SQS e DynamoDB.
+        Retorna 200 quando ambos respondem; 503 caso contrário.
+      responses:
+        "200":
+          description: Serviço saudável.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthOk"
+              examples:
+                healthy:
+                  value: { status: healthy }
+        "503":
+          description: Alguma dependência externa está fora do ar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDown"
+              examples:
+                unhealthy:
+                  value:
+                    status: unhealthy
+                    error: "dynamodb describe-table: connection refused"
+
+  /metrics/{developer_id}:
+    get:
+      tags: [Metrics]
+      summary: Lista eventos de um desenvolvedor
+      description: |
+        Retorna a página de eventos do desenvolvedor, ordenada pela ordem
+        natural do GSI `developer_id-index`. A paginação é por cursor:
+        `next_cursor` é o `event_id` do último item; passe-o em `cursor`
+        para a próxima página. Quando `next_cursor` está ausente, é o fim.
+      parameters:
+        - $ref: "#/components/parameters/DeveloperID"
+        - in: query
+          name: limit
+          description: Tamanho da página (clampado no use case; default 10).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+        - in: query
+          name: cursor
+          description: Cursor de paginação — `next_cursor` da resposta anterior.
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Página de eventos. `items` pode ser vazio quando o dev não tem registros.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsPage"
+              examples:
+                pageWithCursor:
+                  value:
+                    items:
+                      - event_id: 550e8400-e29b-41d4-a716-446655440000
+                        developer_id: dev-123
+                        metric_type: commits
+                        value: 15
+                        repository: org/repo-name
+                        timestamp: "2026-04-15T10:30:00Z"
+                        processed_at: "2026-04-15T10:30:05Z"
+                        processor_id: processor-1
+                    next_cursor: 550e8400-e29b-41d4-a716-446655440000
+                lastPage:
+                  value:
+                    items: []
+        "400":
+          description: developer_id ausente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Falha interna (DynamoDB indisponível, p.ex.).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /metrics/{developer_id}/summary:
+    get:
+      tags: [Metrics]
+      summary: Resumo agregado de um desenvolvedor
+      description: |
+        Retorna o agregado por desenvolvedor: totais de commits / PRs,
+        média de tempo de review (calculada na leitura como
+        `total_review_time_minutes / review_time_events_count`),
+        total de eventos processados e timestamp da última atividade.
+      parameters:
+        - $ref: "#/components/parameters/DeveloperID"
+      responses:
+        "200":
+          description: Resumo encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Summary"
+              examples:
+                exemplo:
+                  value:
+                    developer_id: dev-123
+                    total_commits: 142
+                    total_pull_requests: 38
+                    avg_review_time_minutes: 45.2
+                    events_processed: 195
+                    last_activity: "2026-04-15T10:30:00Z"
+        "400":
+          description: developer_id ausente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Desenvolvedor sem registros agregados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                naoEncontrado:
+                  value: { error: "developer not found" }
+        "500":
+          description: Falha interna.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  parameters:
+    DeveloperID:
+      in: path
+      name: developer_id
+      required: true
+      description: Identificador do desenvolvedor.
+      schema:
+        type: string
+        example: dev-123
+
+  schemas:
+    MetricType:
+      type: string
+      enum: [commits, pull_requests, review_time_minutes]
+      description: |
+        Tipo da métrica. Para `review_time_minutes`, `value` representa
+        minutos (máximo 1440, ou seja, 24h).
+
+    ProcessedEvent:
+      type: object
+      required:
+        - event_id
+        - developer_id
+        - metric_type
+        - value
+        - timestamp
+        - processed_at
+        - processor_id
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        developer_id:
+          type: string
+          example: dev-123
+        metric_type:
+          $ref: "#/components/schemas/MetricType"
+        value:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 15
+        repository:
+          type: string
+          example: org/repo-name
+        timestamp:
+          type: string
+          format: date-time
+          description: Quando o evento ocorreu na fonte (ex.: criado pelo GitHub).
+        processed_at:
+          type: string
+          format: date-time
+          description: Quando o Processor enriqueceu este evento.
+        processor_id:
+          type: string
+          description: ID da instância do Processor que produziu este registro.
+          example: processor-1
+
+    EventsPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessedEvent"
+        next_cursor:
+          type: string
+          description: |
+            Cursor para a próxima página (o `event_id` do último item).
+            Omitido quando esta é a última página.
+
+    Summary:
+      type: object
+      required:
+        - developer_id
+        - total_commits
+        - total_pull_requests
+        - avg_review_time_minutes
+        - events_processed
+        - last_activity
+      properties:
+        developer_id:
+          type: string
+          example: dev-123
+        total_commits:
+          type: integer
+          format: int64
+          example: 142
+        total_pull_requests:
+          type: integer
+          format: int64
+          example: 38
+        avg_review_time_minutes:
+          type: number
+          format: double
+          description: |
+            Média calculada na leitura. Zero quando ainda não houve nenhum
+            evento `review_time_minutes` para o developer.
+          example: 45.2
+        events_processed:
+          type: integer
+          format: int64
+          example: 195
+        last_activity:
+          type: string
+          format: date-time
+          example: "2026-04-15T10:30:00Z"
+
+    HealthOk:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [healthy]
+
+    HealthDown:
+      type: object
+      required: [status, error]
+      properties:
+        status:
+          type: string
+          enum: [unhealthy]
+        error:
+          type: string
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: developer_id is required
