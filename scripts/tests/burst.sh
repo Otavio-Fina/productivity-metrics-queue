@@ -27,6 +27,17 @@
 set -euo pipefail
 export USERPROFILE="${USERPROFILE:-$HOME}"
 
+# uuidgen não existe no git-bash do Windows. Geramos um UUID v4 conforme
+# RFC 4122 a partir de /dev/urandom — presente no git-bash, Mac e Linux.
+# Os nibbles de versão (4) e variante (8/9/a/b) são fixados manualmente.
+gen_uuid() {
+  local h
+  h=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+  printf '%s-%s-4%s-%x%s-%s\n' \
+    "${h:0:8}" "${h:8:4}" "${h:13:3}" \
+    "$(( 0x${h:16:1} & 0x3 | 0x8 ))" "${h:17:3}" "${h:20:12}"
+}
+
 N="${N:-1000}"
 ENDPOINT="http://localhost:4566"
 RAW_QUEUE="$ENDPOINT/000000000000/raw-events"
@@ -41,11 +52,13 @@ SEND_START=$(date +%s)
 build_entry() {
   local id="$1"
   local uuid ts body
-  uuid=$(uuidgen | tr 'A-Z' 'a-z')
+  uuid=$(gen_uuid)
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   body=$(printf '{"event_id":"%s","developer_id":"dev-burst","metric_type":"commits","value":1,"repository":"org/burst","timestamp":"%s"}' "$uuid" "$ts")
-  # escape JSON pra usar dentro de outro JSON
-  body_escaped=$(printf '%s' "$body" | jq -Rs .)
+  # Embute o body como string JSON dentro do entry. jq não existe no git-bash
+  # do Windows; como o body é JSON gerado por nós (sem barras invertidas nem
+  # caracteres de controle), basta escapar as aspas e envolver em aspas.
+  local body_escaped="\"${body//\"/\\\"}\""
   printf '{"Id":"%s","MessageBody":%s}' "$id" "$body_escaped"
 }
 

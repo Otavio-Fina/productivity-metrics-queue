@@ -29,13 +29,24 @@
 set -euo pipefail
 export USERPROFILE="${USERPROFILE:-$HOME}"
 
+# uuidgen não existe no git-bash do Windows. Geramos um UUID v4 conforme
+# RFC 4122 a partir de /dev/urandom — presente no git-bash, Mac e Linux.
+# Os nibbles de versão (4) e variante (8/9/a/b) são fixados manualmente.
+gen_uuid() {
+  local h
+  h=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+  printf '%s-%s-4%s-%x%s-%s\n' \
+    "${h:0:8}" "${h:8:4}" "${h:13:3}" \
+    "$(( 0x${h:16:1} & 0x3 | 0x8 ))" "${h:17:3}" "${h:20:12}"
+}
+
 N="${N:-50}"
 ENDPOINT="http://localhost:4566"
 RAW_QUEUE="$ENDPOINT/000000000000/raw-events"
 
 # event_id fixo e único pra este teste — gerado uma vez por execução
 # pra não colidir com runs anteriores
-DUP_ID=$(uuidgen | tr 'A-Z' 'a-z')
+DUP_ID=$(gen_uuid)
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 BODY=$(printf '{"event_id":"%s","developer_id":"dev-idem","metric_type":"commits","value":7,"repository":"org/idem","timestamp":"%s"}' "$DUP_ID" "$TS")
 
@@ -64,16 +75,20 @@ done
 sleep 3
 
 echo ""
-echo "==> Verificação 1: linhas em `events` para event_id=$DUP_ID (esperado: 1)"
-ROWS=$(aws --endpoint-url="$ENDPOINT" --no-cli-pager dynamodb get-item \
+echo "==> Verificação 1: linhas na tabela events para event_id=$DUP_ID (esperado: 1)"
+# Sem jq (ausente no git-bash do Windows): usamos o --query do próprio AWS CLI.
+# Se o item existir, --output text devolve o event_id; senão devolve "None".
+FOUND=$(aws --endpoint-url="$ENDPOINT" --no-cli-pager dynamodb get-item \
   --table-name events \
   --key "{\"event_id\":{\"S\":\"$DUP_ID\"}}" \
-  --output json 2>/dev/null | jq -r 'if .Item then 1 else 0 end')
+  --query 'Item.event_id.S' --output text 2>/dev/null || true)
+if [[ "$FOUND" == "$DUP_ID" ]]; then ROWS=1; else ROWS=0; fi
 echo "    encontrado: $ROWS"
 
 echo ""
 echo "==> Verificação 2: summary de dev-idem (esperado: events_processed=1, total_commits=7)"
-curl -s http://localhost:8080/metrics/dev-idem/summary | jq .
+# jq não existe no git-bash; o summary é um objeto plano, imprimimos cru.
+curl -s http://localhost:8080/metrics/dev-idem/summary; echo
 
 echo ""
 echo "=============================================="
