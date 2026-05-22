@@ -392,7 +392,7 @@ Tudo configurável; nada hardcoded. Defaults definidos em
 | `RAW_EVENTS_QUEUE_URL` | `…/raw-events` | Fila de entrada. |
 | `PROCESSED_EVENTS_QUEUE_URL` | `…/processed-events` | Fila de saída. |
 | `PROCESSOR_ID` | `processor-1` | Vai no `processor_id` do evento enriquecido. |
-| `WORKER_COUNT` | `2` | Tamanho do pool. |
+| `WORKER_COUNT` | `5` | Tamanho do pool. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `jaeger:4317` | OTLP gRPC; vazio = tracer no-op. |
 | `OTEL_SERVICE_NAME` | `processor` | Aparece como nome do serviço no Jaeger. |
 
@@ -406,7 +406,7 @@ Tudo configurável; nada hardcoded. Defaults definidos em
 | `EVENTS_TABLE_NAME` | `events` | DynamoDB. |
 | `SUMMARY_TABLE_NAME` | `developer_summary` | DynamoDB. |
 | `EVENTS_GSI_NAME` | `developer_id-index` | GSI para o `GET /metrics/:dev`. |
-| `WORKER_COUNT` | `2` | Tamanho do pool. |
+| `WORKER_COUNT` | `5` | Tamanho do pool. |
 | `HTTP_PORT` | `8080` | Porta da API REST. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `jaeger:4317` | Idem processor. |
 | `OTEL_SERVICE_NAME` | `aggregator` | Idem processor. |

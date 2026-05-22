@@ -35,6 +35,17 @@
 set -euo pipefail
 export USERPROFILE="${USERPROFILE:-$HOME}"
 
+# uuidgen não existe no git-bash do Windows. Geramos um UUID v4 conforme
+# RFC 4122 a partir de /dev/urandom — presente no git-bash, Mac e Linux.
+# Os nibbles de versão (4) e variante (8/9/a/b) são fixados manualmente.
+gen_uuid() {
+  local h
+  h=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+  printf '%s-%s-4%s-%x%s-%s\n' \
+    "${h:0:8}" "${h:8:4}" "${h:13:3}" \
+    "$(( 0x${h:16:1} & 0x3 | 0x8 ))" "${h:17:3}" "${h:20:12}"
+}
+
 N="${N:-25}"
 ENDPOINT="http://localhost:4566"
 RAW_QUEUE="$ENDPOINT/000000000000/raw-events"
@@ -64,17 +75,17 @@ for i in $(seq 1 "$N"); do
   # regra 1: UUID inválido
   send "$(printf '{"event_id":"not-a-uuid-%d","developer_id":"dev-bad","metric_type":"commits","value":1,"repository":"org/bad","timestamp":"%s"}' "$i" "$ts")"
   # regra 2: value negativo
-  send "$(printf '{"event_id":"%s","developer_id":"dev-bad","metric_type":"commits","value":-1,"repository":"org/bad","timestamp":"%s"}' "$(uuidgen | tr A-Z a-z)" "$ts")"
+  send "$(printf '{"event_id":"%s","developer_id":"dev-bad","metric_type":"commits","value":-1,"repository":"org/bad","timestamp":"%s"}' "$(gen_uuid)" "$ts")"
   # regra 3: review_time > 1440
-  send "$(printf '{"event_id":"%s","developer_id":"dev-bad","metric_type":"review_time_minutes","value":9999,"repository":"org/bad","timestamp":"%s"}' "$(uuidgen | tr A-Z a-z)" "$ts")"
+  send "$(printf '{"event_id":"%s","developer_id":"dev-bad","metric_type":"review_time_minutes","value":9999,"repository":"org/bad","timestamp":"%s"}' "$(gen_uuid)" "$ts")"
   # regra 4: timestamp no futuro
-  send "$(printf '{"event_id":"%s","developer_id":"dev-bad","metric_type":"commits","value":1,"repository":"org/bad","timestamp":"%s"}' "$(uuidgen | tr A-Z a-z)" "$future_ts")"
+  send "$(printf '{"event_id":"%s","developer_id":"dev-bad","metric_type":"commits","value":1,"repository":"org/bad","timestamp":"%s"}' "$(gen_uuid)" "$future_ts")"
 done
 echo "==> $TOTAL inválidos enviados"
 
 # Cada mensagem precisa ser recebida 3x. Visibility timeout default LocalStack
 # é 30s, mas LocalStack normalmente devolve rápido. Damos margem generosa.
-WAIT="${WAIT:-90}"
+WAIT="${WAIT:-120}"
 echo "==> aguardando ${WAIT}s para SQS completar 3 receives + redrive..."
 sleep "$WAIT"
 

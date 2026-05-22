@@ -39,7 +39,7 @@ services:
       RAW_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/raw-events
       PROCESSED_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/processed-events
       PROCESSOR_ID: processor-1
-      WORKER_COUNT: "2"
+      WORKER_COUNT: "5"
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
       OTEL_SERVICE_NAME: processor
 
@@ -61,7 +61,7 @@ services:
       EVENTS_TABLE_NAME: events
       SUMMARY_TABLE_NAME: developer_summary
       EVENTS_GSI_NAME: developer_id-index
-      WORKER_COUNT: "2"
+      WORKER_COUNT: "5"
       HTTP_PORT: "8080"
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
       OTEL_SERVICE_NAME: aggregator

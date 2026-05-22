@@ -30,6 +30,17 @@
 set -euo pipefail
 export USERPROFILE="${USERPROFILE:-$HOME}"
 
+# uuidgen não existe no git-bash do Windows. Geramos um UUID v4 conforme
+# RFC 4122 a partir de /dev/urandom — presente no git-bash, Mac e Linux.
+# Os nibbles de versão (4) e variante (8/9/a/b) são fixados manualmente.
+gen_uuid() {
+  local h
+  h=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+  printf '%s-%s-4%s-%x%s-%s\n' \
+    "${h:0:8}" "${h:8:4}" "${h:13:3}" \
+    "$(( 0x${h:16:1} & 0x3 | 0x8 ))" "${h:17:3}" "${h:20:12}"
+}
+
 DURATION="${DURATION:-1800}"
 RATE="${RATE:-1}"
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
@@ -66,7 +77,7 @@ COUNT=0
 LAST_REPORT=$(date +%s)
 
 while [[ "$(date +%s)" -lt "$END" ]]; do
-  uuid=$(uuidgen | tr 'A-Z' 'a-z')
+  uuid=$(gen_uuid)
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   body=$(printf '{"event_id":"%s","developer_id":"dev-soak","metric_type":"commits","value":1,"repository":"org/soak","timestamp":"%s"}' "$uuid" "$ts")
   aws --endpoint-url="$ENDPOINT" --no-cli-pager sqs send-message \

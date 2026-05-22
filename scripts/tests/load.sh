@@ -32,6 +32,17 @@ set -euo pipefail
 # no subprocess senão pathlib.Path.home() crasha. No-op em Mac/Linux.
 export USERPROFILE="${USERPROFILE:-$HOME}"
 
+# uuidgen não existe no git-bash do Windows. Geramos um UUID v4 conforme
+# RFC 4122 a partir de /dev/urandom — presente no git-bash, Mac e Linux.
+# Os nibbles de versão (4) e variante (8/9/a/b) são fixados manualmente.
+gen_uuid() {
+  local h
+  h=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+  printf '%s-%s-4%s-%x%s-%s\n' \
+    "${h:0:8}" "${h:8:4}" "${h:13:3}" \
+    "$(( 0x${h:16:1} & 0x3 | 0x8 ))" "${h:17:3}" "${h:20:12}"
+}
+
 N="${N:-500}"
 RATE="${RATE:-50}"
 ENDPOINT="http://localhost:4566"
@@ -43,7 +54,7 @@ echo "==> Load test: N=$N, target rate=$RATE ev/s (sleep=${SLEEP}s entre sends)"
 START=$(date +%s)
 
 for i in $(seq 1 "$N"); do
-  uuid=$(uuidgen | tr 'A-Z' 'a-z')
+  uuid=$(gen_uuid)
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   body=$(printf '{"event_id":"%s","developer_id":"dev-load","metric_type":"commits","value":1,"repository":"org/load","timestamp":"%s"}' "$uuid" "$ts")
   aws --endpoint-url="$ENDPOINT" --no-cli-pager sqs send-message \
